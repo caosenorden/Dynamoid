@@ -107,7 +107,7 @@ module Dynamoid
         else
           ids = range_key ? [[ids, range_key]] : ids
         end
-        
+
         if Dynamoid::Config.partitioning?
           batch_delete_item(table => id_with_partitions(ids))
         else
@@ -161,7 +161,7 @@ module Dynamoid
     def id_with_partitions(ids)
       Array(ids).collect {|id| (0...Dynamoid::Config.partition_size).collect{|n| id.is_a?(Array) ? ["#{id.first}.#{n}", id.last] : "#{id}.#{n}"}}.flatten(1)
     end
-    
+
     #Get original id (hash_key) and partiton number from a hash_key
     #
     # @param [String] id the id or hash_key of a record, ex. xxxxx.13
@@ -182,23 +182,23 @@ module Dynamoid
     #
     # @since 0.2.0
     def result_for_partition(results, table_name)
-      table = adapter.get_table(table_name)
-      
-      if table.range_key     
+      table = @adapter.get_table(table_name)
+
+      if table.range_key
         range_key_name = table.range_key.name.to_sym
-        
+
         final_hash = {}
 
         results.each do |record|
           test_record = final_hash[record[range_key_name]]
-          
+
           if test_record.nil? || ((record[range_key_name] == test_record[range_key_name]) && (record[:updated_at] > test_record[:updated_at]))
             #get ride of our partition and put it in the array with the range key
             record[:id], partition = get_original_id_and_partition  record[:id]
             final_hash[record[range_key_name]] = record
           end
         end
-  
+
         return final_hash.values
       else
         {}.tap do |hash|
@@ -206,7 +206,7 @@ module Dynamoid
             next if result.nil?
             #Need to find the value of id with out the . and partition number
             id, partition = get_original_id_and_partition result[:id]
-  
+
             if !hash[id] || (result[:updated_at] > hash[id][:updated_at])
               result[:id] = id
               hash[id] = result
@@ -223,7 +223,7 @@ module Dynamoid
       return benchmark(method, *args) {adapter.send(method, *args, &block)} if @adapter.respond_to?(method)
       super
     end
-    
+
     # Query the DynamoDB table. This employs DynamoDB's indexes so is generally faster than scanning, but is
     # only really useful for range queries, since it can only find by one hash key at once. Only provide
     # one range key to the hash. If paritioning is on, will run a query for every parition and join the results
@@ -240,25 +240,25 @@ module Dynamoid
     # @return [Array] an array of all matching items
     #
     def query(table_name, opts = {})
-      
+
       unless Dynamoid::Config.partitioning?
         #no paritioning? just pass to the standard query method
-        adapter.query(table_name, opts)
+        @adapter.query(table_name, opts)
       else
         #get all the hash_values that could be possible
         ids = id_with_partitions(opts[:hash_value])
 
         #lets not overwrite with the original options
-        modified_options = opts.clone     
+        modified_options = opts.clone
         results = []
-        
+
         #loop and query on each of the partition ids
         ids.each do |id|
           modified_options[:hash_value] = id
 
           query_result = adapter.query(table_name, modified_options)
           results += query_result.inject([]){|array, result| array += [result]} if query_result.any?
-        end 
+        end
 
         result_for_partition results, table_name
       end
